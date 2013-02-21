@@ -54,6 +54,7 @@
 //For omp_get_num_procs
 #include <omp.h>
 #include <stdlib.h>
+#include <complex.h>
 
 /** Maximal size of FFT grid. 
  * In practice 1024 means we need just over 4GB, as sizeof(float)=4*/
@@ -71,7 +72,8 @@ using namespace std;
 int main(int argc, char* argv[]){
   int nrbins,field_dims=0,type;
   float *field, *power, *keffs;
-  int *count; 
+  float *bispec, *bispeci;
+  int *count, *countbi; 
   string infiles(""),outdir("");
   char c;
   double box;
@@ -99,7 +101,7 @@ int main(int argc, char* argv[]){
   }
   //Work out how large a field we need
   for(type=0;type<N_TYPE;type++){
-    int tmp=2*nexttwo(cbrt(snap.GetNpart(type)));
+    int tmp=1*nexttwo(cbrt(snap.GetNpart(type)));//kgrid=#*number of particles
     field_dims=std::max(field_dims, std::min(tmp, FIELD_DIMS));
   }
   //Get the header and print out some useful things
@@ -128,8 +130,11 @@ int main(int argc, char* argv[]){
   //Allocate memory for output
   power=(float *) malloc(nrbins*sizeof(float));
   count=(int *) malloc(nrbins*sizeof(int));
+  countbi=(int *) malloc(pow(nrbins,3)*sizeof(int));
   keffs=(float *) malloc(nrbins*sizeof(float));
-  if(!power || !count || !keffs){
+  bispec=(float *) malloc(pow(nrbins,3)*sizeof(float));
+  bispeci=(float *) malloc(pow(nrbins,3)*sizeof(float));
+  if(!power || !count || !keffs || !bispec || !countbi || !bispeci){
   	fprintf(stderr,"Error allocating memory for power spectrum.\n");
         return 1;
   }
@@ -137,16 +142,27 @@ int main(int argc, char* argv[]){
   for(type=0; type<N_TYPE; type++){
         if(read_fieldize(field,&snap,type, box, field_dims))
                 continue;
-        if(powerspectrum(field_dims,&pl,outfield,nrbins, power,count,keffs))
+	fprintf(stderr,"nrbins=%d\n",nrbins);
+        if(powerspectrum(field_dims,&pl,outfield,nrbins,power,count,keffs))
                 continue;
+	fprintf(stderr,"Main: Calculating Bispectrum for %s\n", type_str(type).c_str());
+	if(bispectrum(field_dims,&pl,outfield,nrbins,bispec,bispeci,countbi,keffs))
+		continue;
+	fprintf(stderr, "Main: Done calculting Bispectrum\n");
+        filename=outdir;
+        filename+="/BI-"+type_str(type)+"-"+infiles.substr(last+1);
+        print_bi(filename,nrbins,keffs,bispec,bispeci,countbi);
         filename=outdir;
         filename+="/PK-"+type_str(type)+"-"+infiles.substr(last+1);
         print_pk(filename,nrbins,keffs,power,count);
+
   }
   //Free memory
   free(power);
   free(count);
   free(keffs);
+  free(bispec);
+  free(countbi);
   fftwf_free(field);
   fftwf_destroy_plan(pl);
   return 0;

@@ -32,7 +32,9 @@ int nexttwo(int);
  * modes at higher k
  * @param power Power spectrum
  * @param count Number of modes in each bin*/
-int print_pk(std::string filename, int nrbins, float * keffs, float * power, int* count);
+int print_pk(std::string filename, int nrbins, float* keffs, float* power, int* count);
+int print_bi(std::string filename, int nrbins, float* keffs, float* bispec, float* bispeci, int* countbi);
+
 
 /** Prints usage info */
 void help(void);
@@ -88,6 +90,7 @@ int read_fieldize(float * field, GadgetReader::GSnap* snap, int type, double box
  * @param count Ditto for modes per bin
  * @param keffs Ditto for effective k.*/
 int powerspectrum(int dims, fftwf_plan* pl,fftwf_complex* outfield, int nrbins, float *power, int *count, float *keffs);
+int bispectrum(int dims, fftwf_plan* pl,fftwf_complex* outfield, int nrbins, float *bispec, float *bispeci, int *countbi, float *keffs);
 
 #ifdef __cplusplus
 }

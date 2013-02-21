@@ -29,6 +29,7 @@ extern float invwindow(int kx, int ky, int kz, int n);
 
 /**Little macro to work the storage order of the FFT.*/
 #define KVAL(n) ((n)<=dims/2 ? (n) : ((n)-dims))
+#define IND(n) ((n) < 0 ? ((n)+dims): (n))
 
 int powerspectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, float *power, int *count,float *keffs)
 {
@@ -38,7 +39,10 @@ int powerspectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, 
 	const int binsperunit=nrbins/(floor(sqrt(3)*abs((dims+1.0)/2.0)+1));
 	/*Half the bin width*/
 	const float bwth=1.0/(2.0*binsperunit);
-	fftwf_execute(*pl);
+
+	fftwf_execute(*pl);//this is the FT
+
+
 	/* Now we compute the powerspectrum in each direction.
 	 * FFTW is unnormalised, so we need to scale by the length of the array
 	 * (we do this later). */
@@ -121,3 +125,151 @@ int powerspectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, 
 	return 0;
 }
 
+
+int bispectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, float *bispec, float* bispeci, int *countbi,float *keffs)
+{
+	const int dims2=dims*dims;
+	const int dims3=dims2*dims;
+	const int nrbins2=nrbins*nrbins;
+	const int nrbins3=nrbins2*nrbins;
+	/*How many bins per unit interval in k?*/
+	const int binsperunit=nrbins/(floor(sqrt(3)*abs((dims+1.0)/2.0)+1));
+	/*Half the bin width*/
+	const float bwth=1.0/(2.0*binsperunit);
+	float *bispecpriv, *bispecipriv;
+	int *countbipriv;
+
+	fftwf_execute(*pl);//computes the FT
+
+
+	/* Now we compute the powerspectrum in each direction.
+	 * FFTW is unnormalised, so we need to scale by the length of the array
+	 * (we do this later). */
+	for(int i=0; i< nrbins/2; i++){
+		/* bin center (k) is i+a.
+		 * a is bin width/2, is 0.5
+		 * k_eff is k+ 2a^2k/(a^2+3k^2) */
+		float k=i*2.0*bwth;
+		keffs[i]=(k+bwth)+2*pow(bwth,2)*(k+bwth)/(pow(bwth,2)+3*pow((k+bwth),2));
+	}
+
+	/*After this point, the number of modes is decreasing.*/
+	for(int i=nrbins/2; i< nrbins; i++){
+		/* bin center (k) is i+a.
+		 * a is bin width/2, is 0.5
+		 * k_eff is k+ 2a^2k/(a^2+3k^2) */
+		float k=i*2.0*bwth;
+		keffs[i]=(k+bwth)-2*pow(bwth,2)*(k+bwth)/(pow(bwth,2)+3*pow((k+bwth),2));
+	}
+	
+	/* initialize arrays */
+	for(int i=0; i< nrbins3; i++){
+		bispec[i]=0;
+		countbi[i]=0;
+		bispeci[i]=0;
+	}
+
+	fprintf(stderr,"Starting Loops\n");
+	//omp_set_num_threads(3);
+	#pragma omp parallel private(bispecpriv,countbipriv)
+	{
+		bispecpriv = (float*) malloc(nrbins3*sizeof(float));
+		countbipriv = (int*) malloc(nrbins3*sizeof(int));
+		bispecipriv = (float*) malloc(nrbins3*sizeof(float));
+		for(int i=0; i< nrbins3; i++){
+			bispecpriv[i]=0;
+			countbipriv[i]=0;
+			bispecipriv[i]=0;
+		}
+		//fprintf(stderr,"omp_get_num_threads(): %d\n",omp_get_num_threads() );
+		#pragma omp for schedule(static) nowait
+
+		/*First Loop over k1*/
+		for(int i=0; i<dims;i++){
+			int indx=i*dims*(dims/2+1);
+			for(int j=0; j<dims; j++){
+				int indy=j*(dims/2+1);
+				//fprintf(stderr,"i,j = %d,%d\n",i,j);
+				for(int k=0; k<dims; k++){
+					//fprintf(stderr,"i,j,k = %d,%d,%d\n",i,j,k);
+					int index=indx+indy+abs(KVAL(k));
+					float kk=sqrt(pow(KVAL(i),2)+pow(KVAL(j),2)+pow(KVAL(k),2));
+					int psindex=floor(binsperunit*kk);
+					
+					/*Second loop over k2*/
+					for(int r=0; r<dims;r++){
+						int indr=r*dims*(dims/2+1);
+						for(int s=0; s<dims;s++){
+							int inds=s*(dims/2+1);
+							for(int t=0; t<dims;t++){
+								int indexb=indr+inds+abs(KVAL(t));
+								float kkb=sqrt(pow(KVAL(s),2)+pow(KVAL(r),2)+pow(KVAL(t),2));
+								int psindexb=floor(binsperunit*kkb);
+
+                                                                /*Third k-point subject to condition
+								 *k3=-k1-k2
+								 *k3 should remain inside box
+								 *use F(-k) = F*(k) for real f(t) 
+								*/
+								float kcx = KVAL(i)+KVAL(s);
+								float kcy = KVAL(j)+KVAL(r);
+								float kcz = KVAL(k)+KVAL(t);
+	
+								if ( (-dims/2<kcx) && (kcx<=dims/2)  && (-dims/2<kcy) 
+									&&  (kcy<=dims/2)  && (-dims/2<kcz) && (kcz<=dims/2) ){
+                                                                	int indexc = IND(kcx)*dims*(dims/2+1)+ IND(kcy)*(dims/2+1) + IND(kcz);
+	                                                                float kkc = sqrt(pow(kcx,2) + pow(kcy,2) + pow(kcz,2));
+	                                                                int psindexc = floor(binsperunit*kkc);
+									
+									/*Calculate F(k1)F(k2)F*(k3)*/
+									/*Complex Part*/
+									float complp= (
+									-outfield[index][0]*outfield[indexb][0]*outfield[indexc][1]
+									+outfield[index][0]*outfield[indexb][1]*outfield[indexc][0]
+									+outfield[index][1]*outfield[indexb][0]*outfield[indexc][0]
+									+outfield[index][1]*outfield[indexb][1]*outfield[indexc][1])
+									*invwindow(KVAL(i),KVAL(j),KVAL(k),dims)*invwindow(KVAL(s),KVAL(r),KVAL(t),dims)*invwindow(kcx,kcy,kcz,dims);
+									
+									
+									/*Real Part*/
+									float realp = (
+                                                                        +outfield[index][0]*outfield[indexb][0]*outfield[indexc][0]
+                                                                        +outfield[index][0]*outfield[indexb][1]*outfield[indexc][1]
+                                                                        +outfield[index][1]*outfield[indexb][0]*outfield[indexc][1]
+                                                                        -outfield[index][1]*outfield[indexb][1]*outfield[indexc][0])
+									*invwindow(KVAL(i),KVAL(j),KVAL(k),dims)*invwindow(KVAL(s),KVAL(r),KVAL(t),dims)*invwindow(kcx,kcy,kcz,dims);
+									if (realp < 0)
+									fprintf(stderr,"k1,k2,k3,real=%e,%e,%e\t%e\n",kk,kkb,kkc,realp);
+									
+									bispecipriv[psindex+nrbins*psindexb+nrbins]+=complp;
+									bispecpriv[psindex+nrbins*psindexb+nrbins]+=realp;
+                                                                        countbipriv[psindex+nrbins*psindexb+nrbins2*psindexc]+=1;
+								}
+					
+							}//t
+						}//s
+					}//r
+				}//k
+			}//j
+		}//i
+		#pragma omp critical
+		{
+			for(int i=0; i< nrbins3;i++){
+				bispec[i]+=bispecpriv[i];
+				countbi[i]+=countbipriv[i];
+				bispeci[i]+=bispecipriv[i];
+			}
+		}
+	}//omp parallel
+	for(int i=0; i< nrbins3;i++){
+		if(countbi[i]){
+			/* I do the division twice to avoid any overflow.*/
+			bispec[i]/=dims3;
+			bispec[i]/=dims3;
+			bispec[i]/=dims3;
+			bispec[i]/=countbi[i];
+		}
+	}
+	fprintf(stderr, "Done calculating bispectrum\n");
+	return 0;
+}
