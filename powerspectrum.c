@@ -136,8 +136,8 @@ int bispectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, flo
 	const int binsperunit=nrbins/(floor(sqrt(3)*abs((dims+1.0)/2.0)+1));
 	/*Half the bin width*/
 	const float bwth=1.0/(2.0*binsperunit);
-	float *bispecpriv, *bispecipriv;
-	int *countbipriv;
+	//float *bispecpriv, *bispecipriv;
+	//int *countbipriv;
 
 	fftwf_execute(*pl);//computes the FT
 
@@ -171,11 +171,11 @@ int bispectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, flo
 
 	fprintf(stderr,"Starting Loops\n");
 	//omp_set_num_threads(3);
-	#pragma omp parallel private(bispecpriv,countbipriv)
+	#pragma omp parallel //private(bispecpriv,bispecipriv,countbipriv)
 	{
-		bispecpriv = (float*) malloc(nrbins3*sizeof(float));
-		countbipriv = (int*) malloc(nrbins3*sizeof(int));
-		bispecipriv = (float*) malloc(nrbins3*sizeof(float));
+		float* bispecpriv = (float*) malloc(nrbins3*sizeof(float));
+		int *countbipriv = (int*) malloc(nrbins3*sizeof(int));
+		float *bispecipriv = (float*) malloc(nrbins3*sizeof(float));
 		for(int i=0; i< nrbins3; i++){
 			bispecpriv[i]=0;
 			countbipriv[i]=0;
@@ -189,7 +189,7 @@ int bispectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, flo
 			int indx=i*dims*(dims/2+1);
 			for(int j=0; j<dims; j++){
 				int indy=j*(dims/2+1);
-				//fprintf(stderr,"i,j = %d,%d\n",i,j);
+				fprintf(stderr,"i,j = %d,%d\n",i,j);
 				for(int k=0; k<dims; k++){
 					//fprintf(stderr,"i,j,k = %d,%d,%d\n",i,j,k);
 					int index=indx+indy+abs(KVAL(k));
@@ -260,6 +260,10 @@ int bispectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, flo
 				bispeci[i]+=bispecipriv[i];
 			}
 		}
+	
+		free(bispecpriv);
+		free(bispecipriv);
+		free(countbipriv);
 	}//omp parallel
 	for(int i=0; i< nrbins3;i++){
 		if(countbi[i]){
