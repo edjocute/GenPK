@@ -272,6 +272,10 @@ int bispectrum(int dims, fftwf_plan* pl,fftwf_complex *outfield, int nrbins, flo
 			bispec[i]/=dims3;
 			bispec[i]/=dims3;
 			bispec[i]/=countbi[i];
+			bispeci[i]/=dims3;
+			bispeci[i]/=dims3;
+			bispeci[i]/=dims3;
+			bispeci[i]/=countbi[i];
 		}
 	}
 	fprintf(stderr, "Done calculating bispectrum\n");
